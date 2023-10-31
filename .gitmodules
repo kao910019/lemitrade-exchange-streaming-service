@@ -1,0 +1,3 @@
+[submodule "source/libs"]
+	path = source/libs
+	url = https://github.com/kao910019/lemitrade-backend-libs.git

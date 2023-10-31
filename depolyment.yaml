@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: lemitrade-exchange-streaming-service
+spec:
+  selector:
+    app: lemitrade-exchange-streaming-pod
+  ports:
+    - name: console
+      port: 8888
+      targetPort: 8888
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lemitrade-exchange-streaming-pod
+  labels:
+    app: lemitrade-exchange-streaming-pod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lemitrade-exchange-streaming-pod
+  template:
+    metadata:
+      labels:
+        app: lemitrade-exchange-streaming-pod
+    spec:
+      # nodeSelector:
+      #   cloud.google.com/gke-spot: "true"
+      imagePullSecrets: 
+        - name: registry-secret
+      containers:
+        - name: lemitrade-exchange-streaming-pod
+          image: lemitrade.synology.me:8443/lemitrade/lemitrade-exchange-streaming-service:test
+          # image: asia-east1-docker.pkg.dev/lemitrade/lemitrade-docker/lemitrade-backend:${LEMITRADE_VERSION}
+          env:
+            # Redis
+            - name: REDIS_HOST
+              value: "staging-redis-cluster.redis-cluster.svc.cluster.local"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_USERNAME
+              value: "default"
+            - name: REDIS_PASSWORD
+              value: "jOElhKs6K7"
+            # RabbitMQ
+            - name: RABBITMQ_HOST
+              value: "rabbitmq-cluster-app.rabbitmq-cluster.svc.cluster.local"
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USERNAME
+              value: "lemist"
+            - name: RABBITMQ_PASSWORD
+              value: "910019"
+            # Console
+            - name: CONSOLE_SERVER_TYPE
+              value: "server"
+            - name: CONSOLE_PORT
+              value: "8888"
+          imagePullPolicy: Always
+          resources:
+            requests:
+              memory: 1Gi
+              cpu: 1000m
