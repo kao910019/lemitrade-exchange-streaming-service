@@ -16,8 +16,8 @@ class StreamingHandlerService(ServiceBase):
     def __init__(self):
         super().__init__("StreamingHandler")
 
-        self.console.AddModule(self.info["id"], StreamingHandlerService, self)
-        self.db.AddModule(self.info["id"], StreamingHandlerService, self)
+        self.console.AddModule(self.info["name"], StreamingHandlerService, self)
+        self.AddModule(self.info["name"], StreamingHandlerService, self)
 
     async def Start(self):
         await super().Start()
