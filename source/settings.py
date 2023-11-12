@@ -18,6 +18,7 @@ LOGO = "\n\
 "
 #=====================================================================
 os.system("")
+os.environ["NUMEXPR_MAX_THREADS"] = str(os.cpu_count())
 SYSTEM_ROOT = os.path.abspath(os.path.dirname(__file__))
 SYSTEM_FILE = os.path.join(SYSTEM_ROOT, "main.py")
 CONFIGS_FILE = os.path.join(SYSTEM_ROOT, "configs.json")

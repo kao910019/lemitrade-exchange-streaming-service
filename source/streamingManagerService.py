@@ -41,8 +41,8 @@ class StreamingManagerService(ServiceBase):
         logging.info("Service Function Testing Start")
         # Kline Request
         await self.SendMessage(self.info["id"], "kline_request", {
-            "exchange": "binance", "type": "spot", "symbols":["BTCUSDT", "ETHUSDT"], "periods":["15m", "15m"], "count":1000
-        }, ack=True, timeout=60)
+            "exchange": "binance", "marketType": "spot", "symbols":["BTCUSDT", "ETHUSDT", "DOGEUSDT"], "periods":["15m", "15m", "15m"], "count":1000
+        }, ack=True, timeout=300)
         logging.info("Service Function Testing Complete")
 
     # ========================================== Service Commands ==========================================
@@ -53,22 +53,18 @@ class StreamingManagerService(ServiceBase):
     # -------------------------------------------
     @Command("kline_request")
     async def KlineRequest(self, cls:str, clsId:str, message:dict = {}):
-        keys = ["stream:info:{}:{}:{}:{}".format(message["exchange"], message["type"], s, p) for s, p in zip(message["symbols"], message["periods"])]
-        print("keys", keys)
         # Get all streaming info on redis
         logging.info("KlineRequest: Get all streaming info on redis")
-        result = await self.rs.r.mget(keys)
+        result = await self.rs.r.hmget("stream:symbols:{}:{}".format(message["exchange"], message["marketType"]), message["symbols"])
         print("result", result)
         # Check which is not streaming
         logging.info("KlineRequest: Check which is not streaming")
         indices = np.where(np.array(result) == None)[0]
-        print("indices", indices)
         while len(indices) != 0:
             outputs = await self.GetServiceDict("StreamingListener")
-            print("GetServiceDict", outputs)
             for id, info in outputs.items():
-                symbols, periods = np.array(message["symbols"])[indices[:info["freeSubscribe"]]], np.array(message["periods"])[indices[:info["freeSubscribe"]]]
-                msg = {"exchange":message["exchange"], "type":message["type"], "symbols":list(symbols), "periods":list(periods), "count":message["count"]}
+                symbols = np.array(message["symbols"])[indices[:info["freeSubscribe"]]]
+                msg = {"exchange":message["exchange"], "marketType":message["marketType"], "streamType":"symbols", "symbols":list(symbols)}
                 await self.SendMessage(id, "subscribe", msg, ack=True, timeout=60)
                 indices = indices[info["freeSubscribe"]:]
                 if len(indices) == 0:
@@ -78,7 +74,7 @@ class StreamingManagerService(ServiceBase):
         await self.SendMessage("StreamingHandler", "kline_prepare", message, ack=True, timeout=60)
         logging.info("KlineRequest: Assert kline already finish")
         # Assert kline already finish
-        result = await self.rs.r.mget(keys)
+        result = await self.rs.r.hmget("stream:kline:{}:{}".format(message["exchange"], message["marketType"]), message["symbols"])
         indices = np.where(np.array(result) == None, np.array(result) != None)[0]
         assert (len(indices) == 0)
         assert all([json.loads(data)["count"] >= message["count"] for data in result])
