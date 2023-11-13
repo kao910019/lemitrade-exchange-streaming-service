@@ -41,7 +41,7 @@ class StreamingManagerService(ServiceBase):
         logging.info("Service Function Testing Start")
         # Kline Request
         await self.SendMessage(self.info["id"], "kline_request", {
-            "exchange": "binance", "marketType": "spot", "symbols":["BTCUSDT", "ETHUSDT", "DOGEUSDT"], "periods":["15m", "15m", "15m"], "count":1000
+            "exchange": "binance", "marketType": "spot", "symbols":["BTC/USDT", "ETH/USDT", "DOGE/USDT"], "periods":["15m", "15m", "15m"], "count":1000
         }, ack=True, timeout=300)
         logging.info("Service Function Testing Complete")
 
@@ -52,11 +52,12 @@ class StreamingManagerService(ServiceBase):
     # Message : {exchange, type, symbols, periods, count}
     # -------------------------------------------
     @Command("kline_request")
-    async def KlineRequest(self, cls:str, clsId:str, message:dict = {}):
+    async def MSG_KlineRequest(self, cls:str, clsId:str, message:dict = {}):
+        timestamp = SYSTEM_TICK_MS()
         # Get all streaming info on redis
         logging.info("KlineRequest: Get all streaming info on redis")
-        result = await self.rs.r.hmget("stream:symbols:{}:{}".format(message["exchange"], message["marketType"]), message["symbols"])
-        print("result", result)
+        tag = "{}:{}".format(message["exchange"], message["marketType"])
+        result = await self.rs.r.hmget("stream:symbols:{}".format(tag), message["symbols"])
         # Check which is not streaming
         logging.info("KlineRequest: Check which is not streaming")
         indices = np.where(np.array(result) == None)[0]
@@ -74,10 +75,17 @@ class StreamingManagerService(ServiceBase):
         await self.SendMessage("StreamingHandler", "kline_prepare", message, ack=True, timeout=60)
         logging.info("KlineRequest: Assert kline already finish")
         # Assert kline already finish
-        result = await self.rs.r.hmget("stream:kline:{}:{}".format(message["exchange"], message["marketType"]), message["symbols"])
-        indices = np.where(np.array(result) == None, np.array(result) != None)[0]
+        result = await self.rs.r.hmget("stream:symbols:{}".format(tag), message["symbols"])
+        indices = np.where(np.array(result) == None)[0]
         assert (len(indices) == 0)
-        assert all([json.loads(data)["count"] >= message["count"] for data in result])
+        keys = ["kline:info:{}:{}:{}".format(tag, s, p) for s, p in zip(message["symbols"], message["periods"])]
+        result = await self.rs.r.mget(keys)
+        indices = np.where(np.array(result) == None)[0]
+        assert (len(indices) == 0)
+        for res in result:
+            res = json.loads(res)
+            assert ((FixTimestampToPeriod(timestamp, res["period"], inputUnit="ms")-MillisecondPeriod("1m")) <= res["updateTime"])
+            assert res["count"] >= message["count"]
 
 if __name__ == "__main__":
     asyncio.run(RunService(StreamingManagerService))

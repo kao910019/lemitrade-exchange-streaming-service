@@ -29,6 +29,7 @@ SYSTEM_TIME = lambda : time.asctime(time.localtime(time.time()))
 SYSTEM_TICK = lambda : time.time()
 SYSTEM_TICK_MS = lambda : round(time.time() * 1000)
 SYSTEM_PLATFORM = platform.system()
+SYSTEM_PID = os.getpid()
 
 os.makedirs(LOG_DIR, exist_ok=True)
 

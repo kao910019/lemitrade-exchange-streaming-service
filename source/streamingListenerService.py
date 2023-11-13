@@ -1,7 +1,6 @@
 import json
 import logging
 import asyncio
-from typing import Dict
 
 from libs.classes.consoleCommandClass import ConsoleCommand
 from libs.classes.commandClass import Command
@@ -20,11 +19,13 @@ class StreamingListenerService(ServiceBase):
         self.console.AddModule(self.info["name"], StreamingListenerService, self)
         self.AddModule(self.info["name"], StreamingListenerService, self)
 
-        self.exchangesInfo:Dict[str:Exchange] = {}
+        self.exchangesInfo = {}
         self.listeners = {}
 
         self.info["totalSubscribe"] = 0
         self.info["freeSubscribe"] = 10*int(80.0 - self.process.cpu_percent())
+
+        self.monitor = False
 
     async def Start(self):
         await super().Start()
@@ -38,12 +39,11 @@ class StreamingListenerService(ServiceBase):
         for tag, exchangeInfo in self.exchangesInfo.items():
             await self.DeleteStreamInfo("symbols", tag, exchangeInfo["symbols"])
             await self.DeleteStreamInfo("clients", tag, exchangeInfo["clients"])
-        for tag, exchangeInfo in self.exchangesInfo.items():
+        for exchangeInfo in self.exchangesInfo.values():
             await exchangeInfo["exchange"].Close()
-        
         await super().Close()
 
-    async def GetExchange(self, exchangeName:str, marketType:str) -> Exchange:
+    def GetExchange(self, exchangeName:str, marketType:str) -> Exchange:
         tag = "{}:{}".format(exchangeName, marketType)
         # Init exchange
         if self.exchangesInfo.get(tag) is None:
@@ -70,7 +70,6 @@ class StreamingListenerService(ServiceBase):
         # Search/Apply free listener
         await self.SubscribeStreams(exchange, listener["streams"])
         # Remove overdate listener
-        await self.ListenerUnsubscribeStreams(listener, listener["streams"])
         await self.CloseListener(listener)
         self.listeners.pop(id)
         logging.info("Listener {} overdate transfer complete".format(id))
@@ -176,10 +175,12 @@ class StreamingListenerService(ServiceBase):
         await self.SemaphoreGive("Listener:{}:Open".format(id))
 
     async def WebsocketOnMessage(self, id, tag, client, message):
+        if self.monitor:
+            print(message)
         message:dict = json.loads(message)
         stream = message.get("stream")
         if stream is not None:
-            await self.SendMessage("StreamingHandler", "stream_handle", message={"tag":tag, "message":message})
+            await self.SendMessage("StreamingHandler", "stream_handle", message={"exchangeTag":tag, "message":message})
         else:
             await self.ListenerStreamsCheck(id, message)
 
@@ -225,7 +226,7 @@ class StreamingListenerService(ServiceBase):
     async def CMD_Test(self):
         logging.info("Service Function Testing Start")
         # Kline Request
-        exchange = await self.GetExchange("binance", "spot")
+        exchange = self.GetExchange("binance", "spot")
         await exchange.Start()
         targetSymbols = [symbol for symbol in list(exchange.symbolsDict.values()) if "USDT" in symbol]
         targetSymbols = [symbol for symbol in targetSymbols if "_" not in symbol]
@@ -241,18 +242,22 @@ class StreamingListenerService(ServiceBase):
     async def CMD_ListenerList(self):
         for id, listener in self.listeners.items():
             logging.info(" Listener - {}: \n - - command: {}\n - - streams: {}\n".format(id, listener["command"], listener["streams"]))
+    
+    @ConsoleCommand(command=["stream"], subCommand=["monitor", "m"], message="stream monitor : Toggle stream monitor")
+    async def CMD_StreamMonitor(self):
+        self.monitor = not self.monitor
     # ========================================== Service Commands ==========================================
     # ------------------------------------------
     # Command : subscribe
     # Description : 
     #  - Subscribe Stream, (1 min period only)
     #  - - Stream Type within "clients" & "symbols"
-    # Message : {exchange, marketType, streamType, keys}
+    # Message : {exchange, marketType, streamType, symbols/clients}
     # -------------------------------------------
     @Command("subscribe")
     async def MSG_Subscribe(self, cls:str, clsId:str, message:dict = {}):
         tag = "{}:{}".format(message["exchange"], message["marketType"])
-        exchange = await self.GetExchange(message["exchange"], message["marketType"])
+        exchange = self.GetExchange(message["exchange"], message["marketType"])
         streamType = message["streamType"]
         # Get all streams
         if streamType == "symbols":
