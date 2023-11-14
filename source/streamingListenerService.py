@@ -34,7 +34,8 @@ class StreamingListenerService(ServiceBase):
         # Unsubscribe streams
         for id in list(self.listeners.keys()):
             exchange = self.exchangesInfo[self.listeners[id]["tag"]]["exchange"]
-            await self.UnsubscribeStreams(exchange, self.listeners[id]["streams"])
+            await self.CloseListener(self.listeners[id])
+            # await self.UnsubscribeStreams(exchange, self.listeners[id]["streams"])
         # Delete streaming info
         for tag, exchangeInfo in self.exchangesInfo.items():
             await self.DeleteStreamInfo("symbols", tag, exchangeInfo["symbols"])
@@ -43,13 +44,15 @@ class StreamingListenerService(ServiceBase):
             await exchangeInfo["exchange"].Close()
         await super().Close()
 
-    def GetExchange(self, exchangeName:str, marketType:str) -> Exchange:
-        tag = "{}:{}".format(exchangeName, marketType)
+    def GetExchange(self, exchangeName:str="binance", marketType:str="spot", tag=None) -> Exchange:
+        if tag is None:
+            tag = "{}:{}".format(exchangeName, marketType)
         # Init exchange
         if self.exchangesInfo.get(tag) is None:
+            exchangeName, marketType = tag.split(":")
             self.exchangesInfo[tag] = {"exchange": Exchange(exchangeName, marketType, console=self.console), "symbols":[], "clients":[]}
         return self.exchangesInfo[tag]["exchange"]
-
+    
     async def HealthCheck(self):
         await super().HealthCheck()
         if self.info["cpu"] > 90.0:
@@ -98,20 +101,20 @@ class StreamingListenerService(ServiceBase):
         url = exchange.GetStreamingURL()
         target = "Listener:{}:Open".format(id)
         await self.CreateSemaphore(target)
-        listener = {
+        self.listeners[id] = {
             "id": id, "task":"Listener:{}".format(id), "tag": tag, "state": "starting",
             "websocket": self.CreateWebsocket(id, tag, url, stream),
             "maxSubscribeNumber": exchange.settings["maxSubscribeNumber"], "command":"SUBSCRIBE", "streams": []
         }
-        self.taskManager.CreateTask(listener["task"], listener["websocket"].ClientLoopTask)
+        self.taskManager.CreateTask(self.listeners[id]["task"], self.listeners[id]["websocket"].ClientLoopTask)
         # Wait listener ready
         await self.SemaphoreTake(target, 10)
-        listener["state"] = "running"
-        return listener
+        self.listeners[id]["state"] = "running"
+        return self.listeners[id]
 
     async def CloseListener(self, listener):
-        await listener["websocket"].Close()
         self.taskManager.CloseTask(listener["task"])
+        await listener["websocket"].Close()
 
     async def SubscribeStreams(self, exchange:Exchange, streams:list):
         tag = "{}:{}".format(exchange.info["name"], exchange.info["marketType"])
@@ -137,8 +140,7 @@ class StreamingListenerService(ServiceBase):
                 if len(streams) == 0:
                     return
             # Create new listener
-            listener = await self.CreateListener(exchange, streams[0])
-            self.listeners[listener["id"]] = listener
+            await self.CreateListener(exchange, streams[0])
 
     async def UnsubscribeStreams(self, exchange:Exchange, streams):
         tag = "{}:{}".format(exchange.info["name"], exchange.info["marketType"])
@@ -180,7 +182,14 @@ class StreamingListenerService(ServiceBase):
         message:dict = json.loads(message)
         stream = message.get("stream")
         if stream is not None:
-            await self.SendMessage("StreamingHandler", "stream_handle", message={"exchangeTag":tag, "message":message})
+            exchange = self.GetExchange(tag=tag)
+            eventType, event, result = await exchange.EventHandle(message)
+            if eventType == "exchange":
+                await self.SendMessage("StreamingHandler", command=event, message={"exchangeTag": tag, "message":result})
+            if eventType == "client":
+                await self.SendMessage("ClientManager", command=event, message={"exchangeTag": tag, "message":result})
+
+            # await self.SendMessage("StreamingHandler", "stream_handle", message={"exchangeTag":tag, "message":message})
         else:
             await self.ListenerStreamsCheck(id, message)
 
@@ -190,7 +199,9 @@ class StreamingListenerService(ServiceBase):
 
     async def WebsocketOnClose(self, id):
         logging.info("Exchange Listener {} Websocket Close".format(id))
-        self.listeners[id]["state"] = "closing"
+        listener = self.listeners.get(id)
+        if listener is not None:
+            listener["state"] = "closing"
 
     async def ListenerStreamsCheck(self, id, message:dict):
         listener = self.listeners[id]
@@ -210,7 +221,7 @@ class StreamingListenerService(ServiceBase):
             if listener["command"] == "SUBSCRIBE":
                 await self.CreateSemaphore("Listener:{}:SUBSCRIPTIONS".format(listener["websocket"].id))
                 await listener["websocket"].Send(json.dumps({"method": "SUBSCRIBE", "params": streams, "id": listener["websocket"].id}))
-            await self.SemaphoreTake("Listener:{}:SUBSCRIPTIONS".format(listener["websocket"].id), 2)
+            await self.SemaphoreTake("Listener:{}:SUBSCRIPTIONS".format(listener["websocket"].id), 5)
 
     async def ListenerUnsubscribeStreams(self, listener, streams:list):
         if not listener["websocket"].started:
@@ -220,7 +231,7 @@ class StreamingListenerService(ServiceBase):
             if listener["command"] == "UNSUBSCRIBE":
                 await self.CreateSemaphore("Listener:{}:SUBSCRIPTIONS".format(listener["websocket"].id))
                 await listener["websocket"].Send(json.dumps({"method": "UNSUBSCRIBE", "params": streams, "id": listener["websocket"].id}))
-            await self.SemaphoreTake("Listener:{}:SUBSCRIPTIONS".format(listener["websocket"].id), 2)
+            await self.SemaphoreTake("Listener:{}:SUBSCRIPTIONS".format(listener["websocket"].id), 5)
     # ========================================== Console Commands ==========================================
     @ConsoleCommand(command=["service"], subCommand=["test"], message="service test : Service function test")
     async def CMD_Test(self):
