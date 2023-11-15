@@ -17,7 +17,7 @@ from settings import *
 class StreamingHandlerService(ServiceBase):
     def __init__(self, configs:Configs):
         super().__init__(configs, "StreamingHandler")
-        self.validPeriods = ["1m", "2m", "15m", "30m", "1h", "2h", "4h", "1d"] # short > long
+        self.validPeriods = ["1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"] # short > long
 
         self.console.AddModule(self.info["name"], StreamingHandlerService, self)
         self.AddModule(self.info["name"], StreamingHandlerService, self)
@@ -155,7 +155,7 @@ class StreamingHandlerService(ServiceBase):
             if res is None:
                 continue
             res = json.loads(res)
-            if res["count"] >= message["count"] and timestamp :
+            if res["count"] >= message["count"] and timestamp:
                 continue
             await self.PrepareKline(tag, exchange, res["symbol"], res["period"], message["count"])
     # ------------------------------------------
@@ -180,7 +180,10 @@ class StreamingHandlerService(ServiceBase):
         timestamp = message["kline"]["timestamp"]
         await self.UpdateKline(exchangeTag, symbol, period, {str(timestamp): json.dumps(message["kline"])})
         since = FixTimestampToPeriod(timestamp, self.validPeriods[-1], inputUnit="ms") # get longest timestamp
-        outputs:dict = await self.MergeKlineWithPeriods(exchangeTag, symbol, self.validPeriods[1:], 1, since=since, to=timestamp) # remove 1m
+        since = since - MillisecondPeriod(self.validPeriods[-1])
+        outputs:dict = await self.MergeKlineWithPeriods(exchangeTag, symbol, self.validPeriods[1:], 2, since=since, to=timestamp) # remove 1m
+        if outputs is None:
+            return
         for p, kline in outputs.items():
             await self.UpdateKline(exchangeTag, symbol, p, self.KlineToData(kline))
         

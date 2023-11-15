@@ -6,6 +6,7 @@ from libs.classes.consoleCommandClass import ConsoleCommand
 from libs.classes.commandClass import Command
 
 from libs.serviceBase import ServiceBase, RunService
+from libs.exchange import Exchange
 from libs.configs import Configs
 from libs.utils import *
 
@@ -23,6 +24,7 @@ class StreamingManagerService(ServiceBase):
 
     async def Close(self):
         await super().Close()
+
     # ========================================== Console Commands ==========================================
     @ConsoleCommand(command=["stream"], subCommand=["list"], message="stream list : List all listener streams")
     async def StreamList(self):
@@ -43,6 +45,23 @@ class StreamingManagerService(ServiceBase):
         await self.SendMessage(self.info["id"], "kline_request", {
             "exchange": "binance", "marketType": "spot", "symbols":["BTC/USDT", "ETH/USDT", "DOGE/USDT"], "periods":["15m", "15m", "15m"], "count":1000
         }, ack=True, timeout=300)
+        logging.info("Service Function Testing Complete")
+
+
+    @ConsoleCommand(command=["service"], subCommand=["listener"], message="service listener : Service function test listener")
+    async def CMD_Test_Listener(self):
+        logging.info("Service Function Testing Start")
+        # Kline Request
+        exchange = Exchange("binance", "spot", console=self.console)
+        await exchange.Start()
+        targetSymbols = [symbol for symbol in list(exchange.symbolsDict.values()) if "USDT" in symbol]
+        targetSymbols = [symbol for symbol in targetSymbols if "_" not in symbol]
+        targetSymbols = [symbol for symbol in targetSymbols if ":" not in symbol]
+        logging.info("Try to Subscribe {} Symbols".format(len(targetSymbols)))
+        
+        await self.SendMessage("StreamingListener", "subscribe", {
+            "exchange": "binance", "marketType": "spot", "streamType":"symbols", "symbols":targetSymbols
+        }, ack=True, timeout=60)
         logging.info("Service Function Testing Complete")
 
     # ========================================== Service Commands ==========================================

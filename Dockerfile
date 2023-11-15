@@ -1,4 +1,4 @@
-FROM lemitrade.synology.me:8443/lemitrade/lemitrade-backend-libs:dev
+FROM lemitrade.synology.me:8443/lemitrade/lemitrade-backend-libs:dev-amd64
 
 WORKDIR /app
 
@@ -7,4 +7,4 @@ RUN rm -f /app/source/configs.json
 
 # EXPOSE ${CONSOLE_PORT}
 EXPOSE 8888
-CMD ["python", "./source/main.py"]
+CMD ["python", "./source/streamingManagerService.py"]
